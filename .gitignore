@@ -1,0 +1,12 @@
+# Dados gerados pelo próprio programa (usuários, senhas com hash, histórico, relatórios)
+dados/
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Sistema
+.DS_Store
+Thumbs.db
