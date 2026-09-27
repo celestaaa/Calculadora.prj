@@ -92,19 +92,49 @@ class BalancaApp:
     def _montar_lista_materiais(self, pai):
         frame = ttk.Frame(pai, padding=10)
         frame.grid(row=0, column=0, sticky="nsew", padx=(0, 8), pady=10)
+        frame.rowconfigure(1, weight=1)
+        frame.columnconfigure(0, weight=1)
 
-        ttk.Label(frame, text="Materiais", style="Muted.TLabel").pack(anchor="w", pady=(0, 8))
+        ttk.Label(frame, text="Materiais", style="Muted.TLabel").grid(row=0, column=0, sticky="w", pady=(0, 8))
+
+        # Área rolável: um Canvas com uma Frame dentro, mais a Scrollbar
+        canvas = tk.Canvas(frame, bg=TEMA["fundo"], highlightthickness=0, bd=0)
+        scrollbar = ttk.Scrollbar(frame, orient="vertical", command=canvas.yview)
+        area_interna = tk.Frame(canvas, bg=TEMA["fundo"])
+
+        area_interna.bind(
+            "<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
+        )
+        janela_id = canvas.create_window((0, 0), window=area_interna, anchor="nw")
+        canvas.bind("<Configure>", lambda e: canvas.itemconfig(janela_id, width=e.width))
+        canvas.configure(yscrollcommand=scrollbar.set)
+
+        canvas.grid(row=1, column=0, sticky="nsew")
+        scrollbar.grid(row=1, column=1, sticky="ns")
+
+        def _rolar_com_mouse(event):
+            # Windows/Mac usam event.delta; Linux usa Button-4/5
+            delta = -1 * (event.delta // 120) if event.delta else (-1 if event.num == 4 else 1)
+            canvas.yview_scroll(delta, "units")
+
+        for alvo in (canvas, area_interna):
+            alvo.bind("<MouseWheel>", _rolar_com_mouse)   # Windows / macOS
+            alvo.bind("<Button-4>", _rolar_com_mouse)      # Linux (scroll up)
+            alvo.bind("<Button-5>", _rolar_com_mouse)      # Linux (scroll down)
 
         self.botoes_material = {}
         for m in MATERIAIS:
             btn = tk.Button(
-                frame, text=f"{m['nome']}\nR$ {m['preco']:.2f}/kg",
+                area_interna, text=f"{m['nome']}\nR$ {m['preco']:.2f}/kg",
                 font=("Segoe UI", 10), bg=TEMA["painel"], fg=TEMA["texto"],
                 activebackground=TEMA["painel_ativo"], activeforeground=TEMA["texto"],
                 relief="flat", bd=0, justify="left", anchor="w", padx=12, pady=10,
                 command=lambda mat=m: self.selecionar_material(mat),
             )
             btn.pack(fill="x", pady=3)
+            btn.bind("<MouseWheel>", _rolar_com_mouse)
+            btn.bind("<Button-4>", _rolar_com_mouse)
+            btn.bind("<Button-5>", _rolar_com_mouse)
             self.botoes_material[m["nome"]] = btn
 
     def _montar_painel_visor(self, pai):
