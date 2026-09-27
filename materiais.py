@@ -1,7 +1,7 @@
 """Dados de materiais e paleta visual do sistema."""
 
 MATERIAIS = [
-    {"nome": "Cobre",    "preco": 25.00},
+    {"nome": "Cobre",    "preco": 45.00},
     {"nome": "Metal",    "preco": 15.00},
     {"nome": "Papelão",  "preco": 0.20},
     {"nome": "Ferro",    "preco": 0.50},
