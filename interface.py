@@ -289,6 +289,36 @@ class BalancaApp:
         ).pack(fill="x")
 
     # ---------- Aba Histórico ----------
+    def _criar_area_rolavel(self, pai, coluna):
+        """Cria um Canvas+Scrollbar dentro de 'pai' na coluna dada e devolve a frame interna rolável."""
+        container = tk.Frame(pai, bg=TEMA["fundo"])
+        container.grid(row=1, column=coluna, sticky="nsew", padx=(0, 0) if coluna == 0 else (16, 0))
+        container.rowconfigure(0, weight=1)
+        container.columnconfigure(0, weight=1)
+
+        canvas = tk.Canvas(container, bg=TEMA["fundo"], highlightthickness=0, bd=0)
+        scrollbar = ttk.Scrollbar(container, orient="vertical", command=canvas.yview)
+        area_interna = tk.Frame(canvas, bg=TEMA["fundo"])
+
+        area_interna.bind("<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
+        janela_id = canvas.create_window((0, 0), window=area_interna, anchor="nw")
+        canvas.bind("<Configure>", lambda e: canvas.itemconfig(janela_id, width=e.width))
+        canvas.configure(yscrollcommand=scrollbar.set)
+
+        canvas.grid(row=0, column=0, sticky="nsew")
+        scrollbar.grid(row=0, column=1, sticky="ns")
+
+        def _rolar(event):
+            delta = -1 * (event.delta // 120) if event.delta else (-1 if event.num == 4 else 1)
+            canvas.yview_scroll(delta, "units")
+
+        for alvo in (canvas, area_interna):
+            alvo.bind("<MouseWheel>", _rolar)
+            alvo.bind("<Button-4>", _rolar)
+            alvo.bind("<Button-5>", _rolar)
+
+        return area_interna, _rolar
+
     def _montar_aba_historico(self, pai):
         frame = ttk.Frame(pai, padding=16)
         frame.pack(fill="both", expand=True)
@@ -299,18 +329,8 @@ class BalancaApp:
         ttk.Label(frame, text="Pesagens finalizadas", style="Muted.TLabel").grid(row=0, column=0, sticky="w", pady=(0, 8))
         ttk.Label(frame, text="Itens da pesagem selecionada", style="Muted.TLabel").grid(row=0, column=1, sticky="w", padx=(16, 0), pady=(0, 8))
 
-        self.lista_historico = tk.Listbox(
-            frame, bg=TEMA["painel"], fg=TEMA["texto"], relief="flat",
-            font=("Consolas", 10), highlightthickness=0, selectbackground=TEMA["painel_ativo"]
-        )
-        self.lista_historico.grid(row=1, column=0, sticky="nsew")
-        self.lista_historico.bind("<<ListboxSelect>>", self._mostrar_detalhe_historico)
-
-        self.detalhe_historico = tk.Listbox(
-            frame, bg=TEMA["painel"], fg=TEMA["texto"], relief="flat",
-            font=("Consolas", 10), highlightthickness=0, selectbackground=TEMA["painel"], activestyle="none"
-        )
-        self.detalhe_historico.grid(row=1, column=1, sticky="nsew", padx=(16, 0))
+        self.area_lista_historico, rolar_hist = self._criar_area_rolavel(frame, coluna=0)
+        self.area_detalhe_historico, rolar_det = self._criar_area_rolavel(frame, coluna=1)
 
         tk.Button(
             frame, text="Atualizar lista", font=("Segoe UI", 9),
@@ -319,34 +339,70 @@ class BalancaApp:
         ).grid(row=2, column=0, sticky="ew", pady=(10, 0))
 
         self._registros_historico = []
+        self._botoes_registro = []
+        self._indice_selecionado = None
+        self._rolar_hist = rolar_hist
+        self._rolar_det = rolar_det
         self.atualizar_historico()
 
     def atualizar_historico(self):
-        self.lista_historico.delete(0, "end")
-        self.detalhe_historico.delete(0, "end")
+        for widget in self.area_lista_historico.winfo_children():
+            widget.destroy()
+        for widget in self.area_detalhe_historico.winfo_children():
+            widget.destroy()
+
         registros = self.historico.listar()
         self._registros_historico = registros
-        if not registros:
-            self.lista_historico.insert("end", "Nenhuma pesagem finalizada ainda.")
-            return
-        for reg in registros:
-            qtd_itens = len(reg["itens"])
-            self.lista_historico.insert(
-                "end", f"{reg['data']}  —  {qtd_itens} item(ns)  —  R$ {reg['total']:.2f}"
-            )
+        self._botoes_registro = []
+        self._indice_selecionado = None
 
-    def _mostrar_detalhe_historico(self, event=None):
-        self.detalhe_historico.delete(0, "end")
-        selecao = self.lista_historico.curselection()
-        if not selecao or not self._registros_historico:
+        if not registros:
+            tk.Label(
+                self.area_lista_historico, text="Nenhuma pesagem finalizada ainda.",
+                bg=TEMA["fundo"], fg=TEMA["muted"], font=("Segoe UI", 10)
+            ).pack(anchor="w", pady=8)
             return
-        idx = selecao[0]
+
+        for idx, reg in enumerate(registros):
+            qtd_itens = len(reg["itens"])
+            btn = tk.Button(
+                self.area_lista_historico,
+                text=f"{reg['data']}\n{qtd_itens} item(ns)  •  R$ {reg['total']:.2f}",
+                font=("Segoe UI", 10), bg=TEMA["painel"], fg=TEMA["texto"],
+                activebackground=TEMA["painel_ativo"], activeforeground=TEMA["texto"],
+                relief="flat", bd=0, justify="left", anchor="w", padx=12, pady=10,
+                command=lambda i=idx: self._selecionar_registro(i),
+            )
+            btn.pack(fill="x", pady=3)
+            for evento in ("<MouseWheel>", "<Button-4>", "<Button-5>"):
+                btn.bind(evento, self._rolar_hist)
+            self._botoes_registro.append(btn)
+
+    def _selecionar_registro(self, idx):
+        for i, btn in enumerate(self._botoes_registro):
+            btn.configure(bg=TEMA["painel_ativo"] if i == idx else TEMA["painel"])
+        self._indice_selecionado = idx
+
+        for widget in self.area_detalhe_historico.winfo_children():
+            widget.destroy()
+
         if idx >= len(self._registros_historico):
             return
         registro = self._registros_historico[idx]
         for item in registro["itens"]:
-            linha = f"{item['nome']:<10} {item['peso']:>7.2f} kg   R$ {item['valor']:>8.2f}"
-            self.detalhe_historico.insert("end", linha)
+            card = tk.Frame(self.area_detalhe_historico, bg=TEMA["painel"])
+            card.pack(fill="x", pady=3)
+            tk.Label(
+                card, text=item["nome"], font=("Segoe UI", 10),
+                bg=TEMA["painel"], fg=TEMA["texto"], anchor="w", padx=12, pady=(10, 0)
+            ).pack(fill="x")
+            tk.Label(
+                card, text=f"{item['peso']:.2f} kg  •  R$ {item['valor']:.2f}",
+                font=("Segoe UI", 9), bg=TEMA["painel"], fg=TEMA["muted"], anchor="w", padx=12, pady=(0, 10)
+            ).pack(fill="x")
+            for widget in (card, *card.winfo_children()):
+                for evento in ("<MouseWheel>", "<Button-4>", "<Button-5>"):
+                    widget.bind(evento, self._rolar_det)
 
     # ---------- Lógica da pesagem ----------
     def selecionar_material(self, material):
