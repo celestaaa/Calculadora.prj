@@ -6,6 +6,7 @@ from tkinter import ttk, messagebox
 from materiais import MATERIAIS, TEMA
 from modelo import Ticket
 from armazenamento import GerenciadorHistorico, gerar_relatorio
+from precos import GerenciadorPrecos
 
 
 class BalancaApp:
@@ -20,6 +21,7 @@ class BalancaApp:
 
         self.ticket = Ticket()
         self.historico = GerenciadorHistorico()
+        self.precos = GerenciadorPrecos(MATERIAIS)
         self.material_selecionado = None
 
         self._montar_estilo()
@@ -167,7 +169,15 @@ class BalancaApp:
         frame.rowconfigure(1, weight=1)
         frame.columnconfigure(0, weight=1)
 
-        ttk.Label(frame, text="Materiais", style="Muted.TLabel").grid(row=0, column=0, sticky="w", pady=(0, 8))
+        cabecalho_materiais = ttk.Frame(frame)
+        cabecalho_materiais.grid(row=0, column=0, sticky="ew", pady=(0, 8))
+        ttk.Label(cabecalho_materiais, text="Materiais", style="Muted.TLabel").pack(side="left")
+        tk.Button(
+            cabecalho_materiais, text="Editar preços", font=("Segoe UI", 8, "underline"),
+            bg=TEMA["fundo"], fg=TEMA["cobre"], relief="flat", bd=0, cursor="hand2",
+            activebackground=TEMA["fundo"], activeforeground=TEMA["cobre"],
+            command=self.abrir_edicao_precos
+        ).pack(side="right")
 
         # Área rolável: um Canvas com uma Frame dentro, mais a Scrollbar
         canvas = tk.Canvas(frame, bg=TEMA["fundo"], highlightthickness=0, bd=0)
@@ -195,7 +205,7 @@ class BalancaApp:
             alvo.bind("<Button-5>", _rolar_com_mouse)      # Linux (scroll down)
 
         self.botoes_material = {}
-        for m in MATERIAIS:
+        for m in self.precos.listar():
             btn = tk.Button(
                 area_interna, text=f"{m['nome']}\nR$ {m['preco']:.2f}/kg",
                 font=("Segoe UI", 10), bg=TEMA["painel"], fg=TEMA["texto"],
@@ -420,6 +430,80 @@ class BalancaApp:
             for evento in ("<MouseWheel>", "<Button-4>", "<Button-5>"):
                 widget.bind(evento, self._rolar_det)
 
+    def abrir_edicao_precos(self):
+        janela = tk.Toplevel(self.root)
+        janela.title("Editar preços dos materiais")
+        janela.configure(bg=TEMA["fundo"])
+        janela.geometry("320x440")
+        janela.resizable(False, False)
+        janela.transient(self.root)
+        janela.grab_set()
+
+        container = ttk.Frame(janela, padding=20)
+        container.pack(fill="both", expand=True)
+        ttk.Label(container, text="Preço por kg (R$)", style="Titulo.TLabel").pack(anchor="w")
+        ttk.Label(
+            container, text="Altere os valores e clique em salvar.", style="Muted.TLabel"
+        ).pack(anchor="w", pady=(2, 14))
+
+        entradas = {}
+        for m in self.precos.listar():
+            linha = tk.Frame(container, bg=TEMA["fundo"])
+            linha.pack(fill="x", pady=4)
+            tk.Label(linha, text=m["nome"], bg=TEMA["fundo"], fg=TEMA["texto"], font=("Segoe UI", 10), width=10, anchor="w").pack(side="left")
+            entrada = tk.Entry(
+                linha, font=("Consolas", 11), bg=TEMA["painel"], fg=TEMA["texto"],
+                insertbackground=TEMA["texto"], relief="flat", justify="right", width=10
+            )
+            entrada.insert(0, f"{m['preco']:.2f}")
+            entrada.pack(side="right", ipady=4)
+            entradas[m["nome"]] = entrada
+
+        lbl_erro = tk.Label(container, text="", bg=TEMA["fundo"], fg="#c96b5c", font=("Segoe UI", 9))
+        lbl_erro.pack(anchor="w", pady=(10, 0))
+
+        def salvar():
+            novos = {}
+            for nome, entrada in entradas.items():
+                texto = entrada.get().replace(",", ".").strip()
+                try:
+                    valor = float(texto)
+                    if valor < 0:
+                        raise ValueError
+                except ValueError:
+                    lbl_erro.configure(text=f"Preço inválido para {nome}.")
+                    return
+                novos[nome] = valor
+            self.precos.atualizar_precos(novos)
+            self._atualizar_textos_materiais()
+            janela.destroy()
+
+        tk.Button(
+            container, text="Salvar", font=("Segoe UI", 11, "bold"),
+            bg=TEMA["cobre"], fg="#1a1300", relief="flat", padx=10, pady=10,
+            command=salvar
+        ).pack(fill="x", pady=(16, 6))
+        tk.Button(
+            container, text="Cancelar", font=("Segoe UI", 9),
+            bg=TEMA["fundo"], fg=TEMA["muted"], relief="flat", padx=6, pady=6,
+            command=janela.destroy
+        ).pack(fill="x")
+
+    def _atualizar_textos_materiais(self):
+        for m in self.precos.listar():
+            btn = self.botoes_material.get(m["nome"])
+            if btn:
+                btn.configure(text=f"{m['nome']}\nR$ {m['preco']:.2f}/kg")
+
+        if self.material_selecionado:
+            atualizado = next(
+                (m for m in self.precos.listar() if m["nome"] == self.material_selecionado["nome"]), None
+            )
+            if atualizado:
+                self.material_selecionado = atualizado
+                self.lbl_material.configure(text=f"{atualizado['nome']} — R$ {atualizado['preco']:.2f}/kg")
+                self.atualizar_calculo()
+
     # ---------- Lógica da pesagem ----------
     def selecionar_material(self, material):
         self.material_selecionado = material
@@ -470,11 +554,26 @@ class BalancaApp:
             messagebox.showinfo("Remover item", "Selecione um item da lista para remover.")
             return
         idx = selecao[0]
+        item = self.ticket.itens[idx]
+        confirmar = messagebox.askyesno(
+            "Remover item",
+            f"Remover \"{item.nome}\" ({item.peso:.2f} kg — R$ {item.valor:.2f}) da pesagem?"
+        )
+        if not confirmar:
+            return
         self.lista_ticket.delete(idx)
         self.ticket.remover(idx)
         self._atualizar_total_visor()
 
     def limpar_pesagem(self):
+        if self.ticket.esta_vazio():
+            return
+        confirmar = messagebox.askyesno(
+            "Limpar pesagem",
+            f"Isso vai apagar todos os {len(self.ticket.itens)} item(ns) da pesagem atual (R$ {self.ticket.total:.2f}). Continuar?"
+        )
+        if not confirmar:
+            return
         self.ticket.limpar()
         self.lista_ticket.delete(0, "end")
         self._atualizar_total_visor()
