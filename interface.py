@@ -36,17 +36,6 @@ class BalancaApp:
         style.configure("Muted.TLabel", background=TEMA["fundo"], foreground=TEMA["muted"], font=("Segoe UI", 9))
         style.configure("Titulo.TLabel", background=TEMA["fundo"], foreground=TEMA["texto"], font=("Segoe UI", 16, "bold"))
 
-        style.configure("TNotebook", background=TEMA["fundo"], borderwidth=0)
-        style.configure(
-            "TNotebook.Tab", background=TEMA["painel"], foreground=TEMA["muted"],
-            padding=(16, 8), font=("Segoe UI", 10)
-        )
-        style.map(
-            "TNotebook.Tab",
-            background=[("selected", TEMA["fundo"])],
-            foreground=[("selected", TEMA["texto"])],
-        )
-
     # ---------- Estrutura em abas ----------
     def _montar_abas(self):
         cabecalho = ttk.Frame(self.root, padding=(20, 16, 20, 0))
@@ -67,16 +56,99 @@ class BalancaApp:
                 command=self._sair
             ).pack(side="right")
 
-        self.abas = ttk.Notebook(self.root)
-        self.abas.pack(fill="both", expand=True, padx=20, pady=(0, 16))
+        self.abas_nomes = ["Pesagem", "Histórico"]
+        self.aba_atual = 0
+        self.animando = False
 
-        aba_pesagem = ttk.Frame(self.abas, style="TFrame")
-        aba_historico = ttk.Frame(self.abas, style="TFrame")
-        self.abas.add(aba_pesagem, text="Pesagem")
-        self.abas.add(aba_historico, text="Histórico")
+        barra_abas = tk.Frame(self.root, bg=TEMA["fundo"])
+        barra_abas.pack(fill="x", padx=20, pady=(4, 0))
+
+        self.botoes_aba = []
+        for i, nome in enumerate(self.abas_nomes):
+            btn = tk.Button(
+                barra_abas, text=nome, font=("Segoe UI", 10),
+                bg=TEMA["fundo"], fg=TEMA["texto"] if i == 0 else TEMA["muted"],
+                activebackground=TEMA["fundo"], activeforeground=TEMA["texto"],
+                relief="flat", bd=0, padx=16, pady=8, cursor="hand2",
+                command=lambda idx=i: self._trocar_aba(idx),
+            )
+            btn.pack(side="left")
+            self.botoes_aba.append(btn)
+
+        self.linha_indicador = tk.Frame(barra_abas, bg=TEMA["cobre"], height=2)
+        self.linha_indicador.place(x=0, y=34, width=90, height=2)
+
+        # Área de conteúdo: dois painéis sobrepostos, deslizam ao trocar de aba
+        self.area_conteudo = tk.Frame(self.root, bg=TEMA["fundo"])
+        self.area_conteudo.pack(fill="both", expand=True, padx=20, pady=(8, 16))
+
+        aba_pesagem = ttk.Frame(self.area_conteudo, style="TFrame")
+        aba_historico = ttk.Frame(self.area_conteudo, style="TFrame")
+        self.paineis_aba = [aba_pesagem, aba_historico]
+        aba_pesagem.place(relx=0, rely=0, relwidth=1, relheight=1)
+        aba_historico.place(relx=1, rely=0, relwidth=1, relheight=1)
 
         self._montar_aba_pesagem(aba_pesagem)
         self._montar_aba_historico(aba_historico)
+
+        # Posiciona a linha indicadora certinho embaixo do 1º botão assim que a janela desenhar
+        self.root.after(50, self._posicionar_indicador_inicial)
+
+    def _posicionar_indicador_inicial(self):
+        btn = self.botoes_aba[self.aba_atual]
+        self.linha_indicador.place(x=btn.winfo_x(), y=btn.winfo_y() + btn.winfo_height() - 2,
+                                    width=btn.winfo_width(), height=2)
+
+    def _trocar_aba(self, indice):
+        if indice == self.aba_atual or self.animando:
+            return
+
+        direcao = 1 if indice > self.aba_atual else -1
+        origem = self.paineis_aba[self.aba_atual]
+        destino = self.paineis_aba[indice]
+
+        destino.place(relx=direcao, rely=0, relwidth=1, relheight=1)
+        destino.lift()
+
+        btn_novo = self.botoes_aba[indice]
+        btn_antigo = self.botoes_aba[self.aba_atual]
+        btn_novo.configure(fg=TEMA["texto"])
+        btn_antigo.configure(fg=TEMA["muted"])
+
+        x_origem = self.botoes_aba[self.aba_atual].winfo_x()
+        largura_origem = self.botoes_aba[self.aba_atual].winfo_width()
+        x_destino = btn_novo.winfo_x()
+        largura_destino = btn_novo.winfo_width()
+        y_indicador = btn_novo.winfo_y() + btn_novo.winfo_height() - 2
+
+        self.aba_atual = indice
+        self.animando = True
+        self._animar_transicao(
+            origem, destino, direcao,
+            x_origem, largura_origem, x_destino, largura_destino, y_indicador,
+            passo=0, total_passos=14
+        )
+
+    def _animar_transicao(self, origem, destino, direcao, x_a, larg_a, x_b, larg_b, y_indicador, passo, total_passos):
+        t = passo / total_passos
+        t_suave = 1 - (1 - t) ** 3  # ease-out: começa rápido, termina suave
+
+        origem.place(relx=-direcao * t_suave, rely=0, relwidth=1, relheight=1)
+        destino.place(relx=direcao * (1 - t_suave), rely=0, relwidth=1, relheight=1)
+
+        x_atual = x_a + (x_b - x_a) * t_suave
+        largura_atual = larg_a + (larg_b - larg_a) * t_suave
+        self.linha_indicador.place(x=x_atual, y=y_indicador, width=largura_atual, height=2)
+
+        if passo >= total_passos:
+            self.animando = False
+            return
+
+        self.root.after(
+            12, lambda: self._animar_transicao(
+                origem, destino, direcao, x_a, larg_a, x_b, larg_b, y_indicador, passo + 1, total_passos
+            )
+        )
 
     # ---------- Aba Pesagem ----------
     def _montar_aba_pesagem(self, pai):
@@ -220,26 +292,40 @@ class BalancaApp:
     def _montar_aba_historico(self, pai):
         frame = ttk.Frame(pai, padding=16)
         frame.pack(fill="both", expand=True)
+        frame.columnconfigure(0, weight=1)
+        frame.columnconfigure(1, weight=1)
+        frame.rowconfigure(1, weight=1)
 
-        ttk.Label(frame, text="Pesagens finalizadas", style="Muted.TLabel").pack(anchor="w", pady=(0, 8))
+        ttk.Label(frame, text="Pesagens finalizadas", style="Muted.TLabel").grid(row=0, column=0, sticky="w", pady=(0, 8))
+        ttk.Label(frame, text="Itens da pesagem selecionada", style="Muted.TLabel").grid(row=0, column=1, sticky="w", padx=(16, 0), pady=(0, 8))
 
         self.lista_historico = tk.Listbox(
             frame, bg=TEMA["painel"], fg=TEMA["texto"], relief="flat",
             font=("Consolas", 10), highlightthickness=0, selectbackground=TEMA["painel_ativo"]
         )
-        self.lista_historico.pack(fill="both", expand=True)
+        self.lista_historico.grid(row=1, column=0, sticky="nsew")
+        self.lista_historico.bind("<<ListboxSelect>>", self._mostrar_detalhe_historico)
+
+        self.detalhe_historico = tk.Listbox(
+            frame, bg=TEMA["painel"], fg=TEMA["texto"], relief="flat",
+            font=("Consolas", 10), highlightthickness=0, selectbackground=TEMA["painel"], activestyle="none"
+        )
+        self.detalhe_historico.grid(row=1, column=1, sticky="nsew", padx=(16, 0))
 
         tk.Button(
             frame, text="Atualizar lista", font=("Segoe UI", 9),
             bg=TEMA["fundo"], fg=TEMA["muted"], relief="flat", padx=6, pady=6,
             command=self.atualizar_historico
-        ).pack(fill="x", pady=(10, 0))
+        ).grid(row=2, column=0, sticky="ew", pady=(10, 0))
 
+        self._registros_historico = []
         self.atualizar_historico()
 
     def atualizar_historico(self):
         self.lista_historico.delete(0, "end")
+        self.detalhe_historico.delete(0, "end")
         registros = self.historico.listar()
+        self._registros_historico = registros
         if not registros:
             self.lista_historico.insert("end", "Nenhuma pesagem finalizada ainda.")
             return
@@ -248,6 +334,19 @@ class BalancaApp:
             self.lista_historico.insert(
                 "end", f"{reg['data']}  —  {qtd_itens} item(ns)  —  R$ {reg['total']:.2f}"
             )
+
+    def _mostrar_detalhe_historico(self, event=None):
+        self.detalhe_historico.delete(0, "end")
+        selecao = self.lista_historico.curselection()
+        if not selecao or not self._registros_historico:
+            return
+        idx = selecao[0]
+        if idx >= len(self._registros_historico):
+            return
+        registro = self._registros_historico[idx]
+        for item in registro["itens"]:
+            linha = f"{item['nome']:<10} {item['peso']:>7.2f} kg   R$ {item['valor']:>8.2f}"
+            self.detalhe_historico.insert("end", linha)
 
     # ---------- Lógica da pesagem ----------
     def selecionar_material(self, material):
