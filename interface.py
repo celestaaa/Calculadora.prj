@@ -378,6 +378,8 @@ class BalancaApp:
                 btn.bind(evento, self._rolar_hist)
             self._botoes_registro.append(btn)
 
+        self._selecionar_registro(0)
+
     def _selecionar_registro(self, idx):
         for i, btn in enumerate(self._botoes_registro):
             btn.configure(bg=TEMA["painel_ativo"] if i == idx else TEMA["painel"])
@@ -394,15 +396,29 @@ class BalancaApp:
             card.pack(fill="x", pady=3)
             tk.Label(
                 card, text=item["nome"], font=("Segoe UI", 10),
-                bg=TEMA["painel"], fg=TEMA["texto"], anchor="w", padx=12, pady=(10, 0)
-            ).pack(fill="x")
+                bg=TEMA["painel"], fg=TEMA["texto"], anchor="w", padx=12
+            ).pack(fill="x", pady=(10, 0))
             tk.Label(
                 card, text=f"{item['peso']:.2f} kg  •  R$ {item['valor']:.2f}",
-                font=("Segoe UI", 9), bg=TEMA["painel"], fg=TEMA["muted"], anchor="w", padx=12, pady=(0, 10)
-            ).pack(fill="x")
+                font=("Segoe UI", 9), bg=TEMA["painel"], fg=TEMA["muted"], anchor="w", padx=12
+            ).pack(fill="x", pady=(0, 10))
             for widget in (card, *card.winfo_children()):
                 for evento in ("<MouseWheel>", "<Button-4>", "<Button-5>"):
                     widget.bind(evento, self._rolar_det)
+
+        card_total = tk.Frame(self.area_detalhe_historico, bg=TEMA["fundo"], highlightbackground=TEMA["linha"], highlightthickness=1)
+        card_total.pack(fill="x", pady=(10, 3))
+        tk.Label(
+            card_total, text="Total da pesagem", font=("Segoe UI", 9),
+            bg=TEMA["fundo"], fg=TEMA["muted"], anchor="w", padx=12
+        ).pack(fill="x", pady=(10, 0))
+        tk.Label(
+            card_total, text=f"R$ {registro['total']:.2f}", font=("Consolas", 16, "bold"),
+            bg=TEMA["fundo"], fg=TEMA["total"], anchor="w", padx=12
+        ).pack(fill="x", pady=(0, 10))
+        for widget in (card_total, *card_total.winfo_children()):
+            for evento in ("<MouseWheel>", "<Button-4>", "<Button-5>"):
+                widget.bind(evento, self._rolar_det)
 
     # ---------- Lógica da pesagem ----------
     def selecionar_material(self, material):
